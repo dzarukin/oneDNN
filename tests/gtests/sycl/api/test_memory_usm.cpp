@@ -152,6 +152,60 @@ TEST_P(sycl_memory_usm_test, DefaultConstructor) {
     mem.unmap_data(mapped_ptr);
 }
 
+TEST_P(sycl_memory_usm_test, ExecuteEvents) {
+    engine::kind eng_kind = GetParam();
+    SKIP_IF(engine::get_count(eng_kind) == 0, "Engine not found.");
+#ifdef DNNL_SYCL_CUDA
+    SKIP_IF(eng_kind == engine::kind::gpu,
+            "USM is not supported on CUDA backend");
+#endif
+
+    engine eng(eng_kind, 0);
+    stream s(eng);
+
+    const memory::dim N = 2;
+    const memory::dim C = 128;
+    const memory::dim H = 7;
+    const memory::dim W = 7;
+    const memory::dim nelems = N * C * H * W;
+
+    memory::desc data_md(
+            {N, C, H, W}, memory::data_type::f32, memory::format_tag::abcd);
+    auto bnorm_fwd_d
+            = batch_normalization_forward::desc(prop_kind::forward_training,
+                    data_md, 1e-4, normalization_flags::none);
+    auto bnorm_fwd_pd
+            = batch_normalization_forward::primitive_desc(bnorm_fwd_d, eng);
+    auto ws_md = bnorm_fwd_pd.workspace_desc();
+    auto mean_md = bnorm_fwd_pd.mean_desc();
+    auto var_md = bnorm_fwd_pd.variance_desc();
+
+    auto data_m = sycl_interop::make_memory(
+            data_md, eng, sycl_interop::memory_kind::usm, DNNL_MEMORY_ALLOCATE);
+    auto ws_m = sycl_interop::make_memory(
+            ws_md, eng, sycl_interop::memory_kind::usm, DNNL_MEMORY_ALLOCATE);
+    auto mean_m = sycl_interop::make_memory(
+            mean_md, eng, sycl_interop::memory_kind::usm, DNNL_MEMORY_ALLOCATE);
+    auto var_m = sycl_interop::make_memory(
+            var_md, eng, sycl_interop::memory_kind::usm, DNNL_MEMORY_ALLOCATE);
+
+    void *ptr = data_m.get_data_handle();
+    fill_data(ptr, nelems, eng);
+
+    std::unordered_map<int, memory> args = {
+            {DNNL_ARG_SRC, data_m},
+            {DNNL_ARG_DST, data_m},
+            {DNNL_ARG_MEAN, mean_m},
+            {DNNL_ARG_VARIANCE, var_m},
+            {DNNL_ARG_WORKSPACE, ws_m},
+    };
+
+    auto bnorm_fwd_p = batch_normalization_forward::primitive(bnorm_fwd_pd);
+    cl::sycl::event e;
+    ASSERT_NO_THROW(e = sycl_interop::execute(bnorm_fwd_p, s, args));
+    s.wait();
+}
+
 namespace {
 struct PrintToStringParamName {
     template <class ParamType>
