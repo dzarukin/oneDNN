@@ -279,21 +279,47 @@ memory make_memory(const memory::desc &memory_desc, const engine &aengine,
 /// @param args Arguments map.
 /// @param deps Optional vector with `cl::sycl::event` dependencies.
 ///
-/// @returns Output event.
-inline cl::sycl::event execute(const dnnl::primitive &aprimitive,
-        const stream &astream, const std::unordered_map<int, memory> &args,
+/// @returns Vector of output events.
+inline std::vector<cl::sycl::event> execute_interim_events(
+        const dnnl::primitive &aprimitive, const stream &astream,
+        const std::unordered_map<int, memory> &args,
         const std::vector<cl::sycl::event> &deps = {}) {
     std::vector<dnnl_exec_arg_t> c_args;
     c_args.reserve(args.size());
     for (const auto &a : args)
         c_args.push_back({a.first, a.second.get()});
 
-    cl::sycl::event return_event;
+    std::vector<cl::sycl::event> return_events;
     error::wrap_c_api(
             dnnl_sycl_interop_primitive_execute(aprimitive.get(), astream.get(),
-                    (int)c_args.size(), c_args.data(), &deps, &return_event),
+                    (int)c_args.size(), c_args.data(), &deps, &return_events),
             "could not execute a primitive");
-    return return_event;
+    return return_events;
+}
+
+/// Executes computations specified by the primitive in a specified stream and
+/// returns a SYCL event.
+///
+/// Arguments are passed via an arguments map containing
+/// <index, memory object> pairs. The index must be one of the `DNNL_ARG_*`
+/// values such as `DNNL_ARG_SRC`, and the memory must have a memory descriptor
+/// matching the one returned by
+/// #dnnl::primitive_desc::query_md(#query::exec_arg_md, index) unless using
+/// dynamic shapes (see #DNNL_RUNTIME_DIM_VAL).
+///
+/// @param aprimitive Primitive to execute.
+/// @param astream Stream object. The stream must belong to the same engine
+///     as the primitive.
+/// @param args Arguments map.
+/// @param deps Optional vector with `cl::sycl::event` dependencies.
+///
+/// @returns Output event.
+inline cl::sycl::event execute(const dnnl::primitive &aprimitive,
+        const stream &astream, const std::unordered_map<int, memory> &args,
+        const std::vector<cl::sycl::event> &deps = {}) {
+    std::vector<cl::sycl::event> return_events
+            = execute_interim_events(aprimitive, astream, args, deps);
+    return return_events.back();
 }
 
 } // namespace sycl_interop

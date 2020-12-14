@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <thread>
 #include <utility>
 #include <CL/cl.h>
 #include <CL/sycl.hpp>
@@ -215,21 +216,28 @@ struct sycl_stream_t : public gpu::compute::compute_stream_t {
         return status::success;
     }
 
-    const std::vector<cl::sycl::event> &get_deps() const { return deps_; }
-    void set_deps(const std::vector<cl::sycl::event> &deps) { deps_ = deps; }
-    void add_dep(const cl::sycl::event &dep) { deps_.push_back(dep); }
-    cl::sycl::event get_output_event() const {
-        // Fast path: if only one event, return it.
-        if (deps_.size() == 1) return deps_[0];
-
-        // Otherwise, we run a trivial kernel to gather all deps. The
-        // dummy task is needed to not get an error related to empty
-        // kernel.
-        auto e = queue_->submit([&](cl::sycl::handler &cgh) {
-            register_deps(cgh);
-            cgh.single_task<class dnnl_dummy_kernel>([]() {});
-        });
-        return e;
+    const std::vector<cl::sycl::event> &get_deps() const {
+        const auto this_id = std::this_thread::get_id();
+        const auto it = deps_.find(this_id);
+        if (it != deps_.end()) return it->second;
+        // Create a new element since returning a reference to a temporary
+        // object and passing it further through the call stack is UB and
+        // results in a crash in a callee.
+        deps_.emplace(std::make_pair(this_id, std::vector<cl::sycl::event>()));
+        return deps_.at(this_id);
+    }
+    void set_deps(const std::vector<cl::sycl::event> &deps) {
+        const auto this_id = std::this_thread::get_id();
+        deps_[this_id] = deps;
+    }
+    void add_dep(const cl::sycl::event &dep) {
+        const auto this_id = std::this_thread::get_id();
+        deps_[this_id].push_back(dep);
+    }
+    void clear_deps() {
+        const auto this_id = std::this_thread::get_id();
+        const auto it = deps_.find(this_id);
+        if (it != deps_.end()) it->second.clear();
     }
     void register_deps(cl::sycl::handler &cgh,
             const std::vector<cl::sycl::event> &event_list) const {
@@ -253,10 +261,11 @@ protected:
     }
 
     std::unique_ptr<cl::sycl::queue> queue_;
-
-    // XXX: This is a temporary solution, ideally events should be a part of
-    // execution context.
-    std::vector<cl::sycl::event> deps_;
+    // `mutable` is here to allow `get_deps()` to mimic operator[] behavior,
+    // since returning a temporary object is UB if passed further in call stack.
+    // Refer to comment next to `get_deps()` function.
+    mutable std::unordered_map<std::thread::id, std::vector<cl::sycl::event>>
+            deps_;
 
 private:
     status_t init();

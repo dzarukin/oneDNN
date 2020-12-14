@@ -53,9 +53,10 @@ status_t dnnl_sycl_interop_primitive_execute(
     CHECK(primitive_execute(primitive_iface, ctx));
 
     // return output event
-    cl::sycl::event return_event = sycl_stream->get_output_event();
+    std::vector<cl::sycl::event> return_event = sycl_stream->get_deps();
     if (return_event_ != nullptr)
-        *(cl::sycl::event *)return_event_ = return_event;
+        *(std::vector<cl::sycl::event> *)return_event_ = return_event;
+    sycl_stream->clear_deps();
 
     return status::success;
 }

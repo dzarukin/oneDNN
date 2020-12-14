@@ -204,6 +204,11 @@ TEST_P(sycl_memory_usm_test, ExecuteEvents) {
     cl::sycl::event e;
     ASSERT_NO_THROW(e = sycl_interop::execute(bnorm_fwd_p, s, args));
     s.wait();
+
+    std::vector<cl::sycl::event> ve;
+    ASSERT_NO_THROW(ve = sycl_interop::execute_interim_events(bnorm_fwd_p, s, args));
+    s.wait();
+    ASSERT_TRUE(ve.size() >= 1);
 }
 
 namespace {

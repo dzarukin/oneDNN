@@ -195,7 +195,7 @@ status_t sycl_interop_gpu_kernel_t::parallel_for(stream_t &stream,
         }
     });
 
-    sycl_stream->set_deps({event});
+    sycl_stream->add_dep({event});
     return status::success;
 }
 
