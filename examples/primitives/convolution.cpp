@@ -56,10 +56,11 @@ void convolution_example(dnnl::engine::kind engine_kind) {
 
     // Tensor dimensions.
     const memory::dim N = 3, // batch size
+            G = 32, // channel groups
             IC = 32, // input channels
             IH = 13, // input height
             IW = 13, // input width
-            OC = 64, // output channels
+            OC = 32, // output channels
             KH = 3, // weights height
             KW = 3, // weights width
             PH_L = 1, // height padding: left
@@ -74,7 +75,7 @@ void convolution_example(dnnl::engine::kind engine_kind) {
     // Source (src), weights, bias, and destination (dst) tensors
     // dimensions.
     memory::dims src_dims = {N, IC, IH, IW};
-    memory::dims weights_dims = {OC, IC, KH, KW};
+    memory::dims weights_dims = {G, OC / G, IC / G, KH, KW};
     memory::dims bias_dims = {OC};
     memory::dims dst_dims = {N, OC, OH, OW};
 
@@ -106,7 +107,7 @@ void convolution_example(dnnl::engine::kind engine_kind) {
     // Create memory objects for tensor data (src, weights, dst). In this
     // example, NCHW layout is assumed for src and dst, and OIHW for weights.
     auto user_src_mem = memory({src_dims, dt::f32, tag::nchw}, engine);
-    auto user_weights_mem = memory({weights_dims, dt::f32, tag::oihw}, engine);
+    auto user_weights_mem = memory({weights_dims, dt::f32, tag::goihw}, engine);
     auto user_dst_mem = memory({dst_dims, dt::f32, tag::nchw}, engine);
 
     // Create memory descriptors with format_tag::any for the primitive. This
